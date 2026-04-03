@@ -7,7 +7,7 @@ pipeline {
 
     environment {
         REGISTRY      = 'localhost:5000'
-        IMAGE_NAME    = 'quarkus-app'
+        IMAGE_NAME    = 'georgezhironkin/quarkus-native:v3'
         DEPLOYMENT    = 'quarkus-app'
         CONTAINER     = 'quarkus-container'
         SERVICE_URL   = 'http://work.local/work'
@@ -221,8 +221,7 @@ pipeline {
 
     post {
         always {
-            // Сохранить результаты как артефакты
-            archiveArtifacts artifacts: 'loadtest*.txt, load_test_report_*.txt', allowEmptyArchive: true
+            archiveArtifacts artifacts: 'loadtest*.txt', allowEmptyArchive: true
 
             sh """
                 echo '=== Final cluster state ==='
