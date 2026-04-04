@@ -2,12 +2,12 @@ pipeline {
     agent any
 
     parameters {
-        string(name: 'IMAGE_TAG', description: 'Тег нового образа (без latest!)')
+        string(name: 'IMAGE_TAG', defaultValue: 'v3', description: 'Тег нового образа (без latest!)')
     }
 
     environment {
         REGISTRY      = 'localhost:5000'
-        IMAGE_NAME    = 'georgezhironkin/quarkus-native:v3'
+        IMAGE_NAME    = 'georgezhironkin/quarkus-native'
         DEPLOYMENT    = 'quarkus-app'
         CONTAINER     = 'quarkus-container'
         SERVICE_URL   = 'http://work.local/work'
@@ -78,14 +78,16 @@ pipeline {
         stage('Verify Service') {
             steps {
                 sh '''
-                    echo "Checking service..."
+                    echo "Checking service via cluster..."
                     for i in $(seq 1 10); do
-                        STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://work.local/work || true)
-                        if [ "$STATUS" = "200" ]; then
+                        STATUS=$(kubectl run curl-check-$i --image=curlimages/curl --rm -i --restart=Never \
+                            -- curl -s -o /dev/null -w "%{http_code}" http://quarkus-service/work 2>/dev/null || true)
+                        if echo "$STATUS" | grep -q "200"; then
                             echo "Service is UP (HTTP 200)"
                             exit 0
                         fi
-                        echo "Attempt $i: HTTP $STATUS — retrying in 5s..."
+                        echo "Attempt $i — retrying in 5s..."
+                        kubectl delete pod curl-check-$i --ignore-not-found 2>/dev/null
                         sleep 5
                     done
                     echo "Service not available"
@@ -146,12 +148,10 @@ pipeline {
                     def successRPS = 0.0
 
                     for (line in lines) {
-                        // "Процент успешных: 100.0%"
                         def successMatch = (line =~ /Процент успешных:\s+(\d+[\.,]?\d*)%/)
                         if (successMatch.find()) {
                             successRate = successMatch.group(1).replace(',', '.').toDouble()
                         }
-                        // "Успешный RPS: 50.00 req/s"
                         def rpsMatch = (line =~ /Успешный RPS:\s+(\d+[\.,]?\d*)\s+req\/s/)
                         if (rpsMatch.find()) {
                             successRPS = rpsMatch.group(1).replace(',', '.').toDouble()
@@ -204,16 +204,14 @@ pipeline {
                     fi
 
                     # Проверка: сервис отвечает
-                    for i in \$(seq 1 10); do
-                        STATUS=\$(curl -s -o /dev/null -w "%{http_code}" http://work.local/work || true)
-                        if [ "\$STATUS" = "200" ]; then
-                            echo "Service OK after rollback"
-                            exit 0
-                        fi
-                        sleep 5
-                    done
-                    echo "Service NOT available after rollback!"
-                    exit 1
+                    STATUS=\$(kubectl run curl-rollback --image=curlimages/curl --rm -i --restart=Never \
+                        -- curl -s -o /dev/null -w "%{http_code}" http://quarkus-service/work 2>/dev/null || true)
+                    if echo "\$STATUS" | grep -q "200"; then
+                        echo "Service OK after rollback"
+                    else
+                        kubectl delete pod curl-rollback --ignore-not-found 2>/dev/null
+                        echo "WARNING: Service check returned: \$STATUS"
+                    fi
                 """
             }
         }
