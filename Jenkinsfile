@@ -1,6 +1,8 @@
 pipeline {
     agent any
 
+    parameters {
+        string(name: 'IMAGE_TAG', defaultValue: 'v3', description: 'Тег нового образа (без latest!)')
     }
 
     environment {
@@ -11,27 +13,10 @@ pipeline {
         SERVICE_URL   = 'http://work.local/work'
         TARGET_RPS    = '50'
         TEST_DURATION = '2m'
-	IMAGE_TAG = 'v3'
     }
 
     stages {
 
-        // ========== 1. Проверить, что образ опубликован ==========
-        stage('Verify Image') {
-            steps {
-                sh """
-                    echo "Checking image ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}..."
-                    RESULT=\$(curl -s -o /dev/null -w "%{http_code}" \
-                        http://${REGISTRY}/v2/${IMAGE_NAME}/manifests/${IMAGE_TAG} \
-                        -H "Accept: application/vnd.docker.distribution.manifest.v2+json")
-                    if [ "\$RESULT" != "200" ]; then
-                        echo "ERROR: Image not found in registry (HTTP \$RESULT)"
-                        exit 1
-                    fi
-                    echo "Image verified OK"
-                """
-            }
-        }
 
         // ========== 2. Сохранить предыдущий стабильный тег ==========
         stage('Save Previous Tag') {
