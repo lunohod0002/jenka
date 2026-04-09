@@ -90,27 +90,28 @@ pipeline {
                     kubectl delete job ${JOB_NAME} --ignore-not-found=true
 
                     kubectl apply -f - <<EOF
-        apiVersion: batch/v1
-        kind: Job
-        metadata:
-        name: ${JOB_NAME}
-        spec:
-        backoffLimit: 0
-        ttlSecondsAfterFinished: 300
-        template:
-            spec:
-            restartPolicy: Never
-            containers:
-                - name: loadtester
-                image: ${LOADTESTER_IMAGE}
-                args:
-                    - "-url"
-                    - "${SERVICE_URL}"
-                    - "-rps"
-                    - "${TARGET_RPS}"
-                    - "-duration"
-                    - "${TEST_DURATION}"
-        EOF
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${JOB_NAME}
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: loadtester
+          image: ${LOADTESTER_IMAGE}
+          args:
+            - "-url"
+            - "${SERVICE_URL}"
+            - "-rps"
+            - "${TARGET_RPS}"
+            - "-duration"
+            - "${TEST_DURATION}"
+EOF
+
 
                     if ! kubectl wait --for=condition=Complete --timeout=5m job/${JOB_NAME}; then
                         echo "Warmup job failed or timed out"
@@ -145,27 +146,28 @@ pipeline {
                 kubectl delete job ${JOB_NAME} --ignore-not-found=true
 
                 kubectl apply -f - <<EOF
-        apiVersion: batch/v1
-        kind: Job
-        metadata:
-        name: ${JOB_NAME}
-        spec:
-        backoffLimit: 0
-        ttlSecondsAfterFinished: 300
-        template:
-            spec:
-            restartPolicy: Never
-            containers:
-                - name: loadtester
-                image: ${LOADTESTER_IMAGE}
-                args:
-                    - "-url"
-                    - "${SERVICE_URL}"
-                    - "-rps"
-                    - "${TARGET_RPS}"
-                    - "-duration"
-                    - "${TEST_DURATION}"
-        EOF
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${JOB_NAME}
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: loadtester
+          image: ${LOADTESTER_IMAGE}
+          args:
+            - "-url"
+            - "${SERVICE_URL}"
+            - "-rps"
+            - "${TARGET_RPS}"
+            - "-duration"
+            - "${TEST_DURATION}"
+EOF
+
 
                 if ! kubectl wait --for=condition=Complete --timeout=5m job/${JOB_NAME}; then
                     echo "Deciding job failed or timed out"
