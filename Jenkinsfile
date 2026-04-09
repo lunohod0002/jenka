@@ -136,6 +136,7 @@ pipeline {
 
         // ========== 6. Нагрузочный тест №2 — решающий ==========
         stage('Load Test 2 (Deciding)') {
+            steps {
             sh '''
                 set -e
 
@@ -175,6 +176,7 @@ pipeline {
 
                 kubectl logs job/${JOB_NAME} | tee loadtest2.txt
             '''
+        }
         }
     
 
