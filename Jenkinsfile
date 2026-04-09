@@ -11,6 +11,9 @@ pipeline {
         DEPLOYMENT    = 'quarkus-app'
         CONTAINER     = 'quarkus-container'
         SERVICE_URL   = 'http://work.local/work'
+        LOADTESTER_IMAGE = 'loadtester'
+        SERVICE_URL      = 'http://quarkus-service/work'
+
         TARGET_RPS    = '50'
         TEST_DURATION = '2m'
     }
@@ -80,14 +83,44 @@ pipeline {
         // ========== 5. Нагрузочный тест №1 — прогрев HPA ==========
         stage('Load Test 1 (Warmup)') {
             steps {
-                sh """
-                    echo '=== Load Test 1: HPA warmup ==='
+                sh '''
+                    set -e
 
-                    docker run --rm --network host loadtester \
-                        -url ${SERVICE_URL} \
-                        -rps ${TARGET_RPS} \
-                        -duration ${TEST_DURATION} \
-                        | tee loadtest1.txt || true
+                    JOB_NAME="loadtest-warmup-job"
+
+                    kubectl delete job ${JOB_NAME} --ignore-not-found=true
+
+                    kubectl apply -f - <<EOF
+        apiVersion: batch/v1
+        kind: Job
+        metadata:
+        name: ${JOB_NAME}
+        spec:
+        backoffLimit: 0
+        ttlSecondsAfterFinished: 300
+        template:
+            spec:
+            restartPolicy: Never
+            containers:
+                - name: loadtester
+                image: ${LOADTESTER_IMAGE}
+                args:
+                    - "-url"
+                    - "${SERVICE_URL}"
+                    - "-rps"
+                    - "${TARGET_RPS}"
+                    - "-duration"
+                    - "${TEST_DURATION}"
+        EOF
+
+                    if ! kubectl wait --for=condition=Complete --timeout=5m job/${JOB_NAME}; then
+                        echo "Warmup job failed or timed out"
+                        kubectl describe job ${JOB_NAME} || true
+                        kubectl logs job/${JOB_NAME} || true
+                        exit 1
+                    fi
+
+                    kubectl logs job/${JOB_NAME} | tee loadtest1.txt
 
                     echo '--- HPA status after warmup ---'
                     kubectl get hpa quarkus-hpa
@@ -98,24 +131,53 @@ pipeline {
 
                     kubectl get hpa quarkus-hpa
                     kubectl get pods -l app=quarkus-app
-                """
+                '''
             }
         }
 
         // ========== 6. Нагрузочный тест №2 — решающий ==========
         stage('Load Test 2 (Deciding)') {
-            steps {
-                sh """
-                    echo '=== Load Test 2: Deciding run ==='
+            sh '''
+                set -e
 
-                    docker run --rm --network host loadtester \
-                        -url ${SERVICE_URL} \
-                        -rps ${TARGET_RPS} \
-                        -duration ${TEST_DURATION} \
-                        | tee loadtest2.txt
-                """
-            }
+                JOB_NAME="loadtest-deciding-${BUILD_NUMBER}"
+
+                kubectl delete job ${JOB_NAME} --ignore-not-found=true
+
+                kubectl apply -f - <<EOF
+            apiVersion: batch/v1
+            kind: Job
+            metadata:
+            name: ${JOB_NAME}
+            spec:
+            backoffLimit: 0
+            ttlSecondsAfterFinished: 300
+            template:
+                spec:
+                restartPolicy: Never
+                containers:
+                    - name: loadtester
+                    image: ${LOADTESTER_IMAGE}
+                    args:
+                        - "-url"
+                        - "${SERVICE_URL}"
+                        - "-rps"
+                        - "${TARGET_RPS}"
+                        - "-duration"
+                        - "${TEST_DURATION}"
+            EOF
+
+                if ! kubectl wait --for=condition=Complete --timeout=5m job/${JOB_NAME}; then
+                    echo "Deciding job failed or timed out"
+                    kubectl describe job ${JOB_NAME} || true
+                    kubectl logs job/${JOB_NAME} || true
+                    exit 1
+                fi
+
+                kubectl logs job/${JOB_NAME} | tee loadtest2.txt
+            '''
         }
+    }
 
         // ========== 7. Анализ результатов ==========
         stage('Analyze Results') {
