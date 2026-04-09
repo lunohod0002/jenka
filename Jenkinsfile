@@ -39,14 +39,11 @@ pipeline {
             steps {
                 sh """
                     echo "Deploying ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}..."
-
                     kubectl set image deployment/${DEPLOYMENT} \
                         ${CONTAINER}=${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
 
                     echo "Waiting for rollout..."
-                    kubectl rollout status deployment/${DEPLOYMENT} --timeout=300s
 
-                    echo "Waiting for pods Ready..."
                     kubectl wait pod \
                         --for=condition=Ready \
                         -l app=${DEPLOYMENT} \
