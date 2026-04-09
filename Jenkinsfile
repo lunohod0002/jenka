@@ -10,7 +10,6 @@ pipeline {
         IMAGE_NAME    = 'georgezhironkin/quarkus-native'
         DEPLOYMENT    = 'quarkus-app'
         CONTAINER     = 'quarkus-container'
-        SERVICE_URL   = 'http://work.local/work'
         LOADTESTER_IMAGE = 'loadtester'
         SERVICE_URL      = 'http://quarkus-service/work'
 
