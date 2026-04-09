@@ -13,7 +13,7 @@ pipeline {
         LOADTESTER_IMAGE = 'loadtester'
         SERVICE_URL      = 'http://quarkus-service/work'
 
-        TARGET_RPS    = '50'
+        TARGET_RPS    = '300'
         TEST_DURATION = '2m'
     }
 
