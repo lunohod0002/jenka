@@ -58,31 +58,39 @@ pipeline {
         }
 
         // ========== 4. Проверить доступность сервиса ==========
-        stage('Verify Service') {
-            steps {
-                sh '''
-                    echo "Checking service via cluster..."
-                    for i in $(seq 1 10); do
-                       kubectl run curl-check-$i --image=curlimages/curl --restart=Never \
-            --overrides='{"spec": {"activeDeadlineSeconds": 30}}' \
-            -- curl -s -o /dev/null -w "%{http_code}" http://quarkus-service/work
+       stage('Verify Service') {
+    steps {
+        sh """
+            echo "Checking service health..."
+            for i in \$(seq 1 10); do
+                POD_NAME="curl-check-${BUILD_NUMBER}-\$i"
+                
+                # Запускаем под
+                kubectl run \$POD_NAME --image=curlimages/curl --restart=Never \
+                    --overrides='{"spec": {"activeDeadlineSeconds": 30}}' \
+                    -- curl -s -o /dev/null -w "%{http_code}" ${SERVICE_URL} || true
+                
+                # Ждем завершения пода, чтобы логи стали доступны
+                kubectl wait --for=condition=Ready pod/\$POD_NAME --timeout=10s > /dev/null 2>&1 || true
+                
+                # Получаем статус
+                STATUS=\$(kubectl logs \$POD_NAME 2>/dev/null | tr -d '\\r\\n' || echo "failed")
+                kubectl delete pod \$POD_NAME --ignore-not-found > /dev/null 2>&1
+                
+                if [ "\$STATUS" = "200" ]; then
+                    echo "Service is UP (HTTP 200)"
+                    exit 0
+                fi
+                
+                echo "Attempt \$i: Status is \$STATUS — retrying in 5s..."
+                sleep 5
+            done
+            echo "Service failed to respond with 200 after 10 attempts."
+            exit 1
+        """
+    }
+}
 
-                kubectl wait --for=condition=Ready pod/curl-check-$i --timeout=20s >/dev/null 2>&1 || true
-
-                    STATUS=$(kubectl logs curl-check-$i 2>/dev/null)
-                  if echo "$STATUS" | grep -q "200"; then
-                            echo "Service is UP (HTTP 200)"
-                            exit 0
-                        fi
-                        echo "Attempt $i — retrying in 5s..."
-                        kubectl delete pod curl-check-$i --ignore-not-found 2>/dev/null
-                        sleep 5
-                    done
-                    echo "Service not available"
-                    exit 1
-                '''
-            }
-        }
 
         // ========== 5. Нагрузочный тест №1 — прогрев HPA ==========
         stage('Load Test 1 (Warmup)') {
@@ -254,15 +262,17 @@ EOF
                     fi
 
                     # Проверка: сервис отвечает
-                   kubectl run curl-check-$i --image=curlimages/curl --restart=Never \
-                --overrides='{"spec": {"activeDeadlineSeconds": 30}}' \
-                -- curl -s -o /dev/null -w "%{http_code}" http://quarkus-service/work
-
-
-        kubectl wait --for=condition=Ready pod/curl-check-$i --timeout=20s >/dev/null 2>&1 || true
-
-                    STATUS=$(kubectl logs curl-check-$i 2>/dev/null)
-                    if echo "\$STATUS" | grep -q "200"; then
+                      kubectl run \$POD_NAME --image=curlimages/curl --restart=Never \
+                    --overrides='{"spec": {"activeDeadlineSeconds": 30}}' \
+                    -- curl -s -o /dev/null -w "%{http_code}" ${SERVICE_URL} || true
+                
+                # Ждем завершения пода, чтобы логи стали доступны
+                kubectl wait --for=condition=Ready pod/\$POD_NAME --timeout=10s > /dev/null 2>&1 || true
+                
+                # Получаем статус
+                STATUS=\$(kubectl logs \$POD_NAME 2>/dev/null | tr -d '\\r\\n' || echo "failed")
+                kubectl delete pod \$POD_NAME --ignore-not-found > /dev/null 2>&1
+                  if echo "\$STATUS" | grep -q "200"; then
                         echo "Service OK after rollback"
                     else
                         kubectl delete pod curl-rollback --ignore-not-found 2>/dev/null
