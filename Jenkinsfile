@@ -14,7 +14,7 @@ pipeline {
         SERVICE_URL      = 'http://quarkus-service/work'
 
         TARGET_RPS    = '300'
-        TEST_DURATION = '2m'
+        TEST_DURATION = '3m'
     }
 
     stages {
@@ -63,9 +63,14 @@ pipeline {
                 sh '''
                     echo "Checking service via cluster..."
                     for i in $(seq 1 10); do
-                        STATUS=$(kubectl run curl-check-$i --image=curlimages/curl --rm -i --restart=Never \
-                            -- curl -s -o /dev/null -w "%{http_code}" http://quarkus-service/work 2>/dev/null || true)
-                        if echo "$STATUS" | grep -q "200"; then
+                       kubectl run curl-check-$i --image=curlimages/curl --restart=Never \
+            --overrides='{"spec": {"activeDeadlineSeconds": 30}}' \
+            -- curl -s -o /dev/null -w "%{http_code}" http://quarkus-service/work
+
+                kubectl wait --for=condition=Ready pod/curl-check-$i --timeout=20s >/dev/null 2>&1 || true
+
+                    STATUS=$(kubectl logs curl-check-$i 2>/dev/null)
+                  if echo "$STATUS" | grep -q "200"; then
                             echo "Service is UP (HTTP 200)"
                             exit 0
                         fi
@@ -249,8 +254,14 @@ EOF
                     fi
 
                     # Проверка: сервис отвечает
-                    STATUS=\$(kubectl run curl-rollback --image=curlimages/curl --rm -i --restart=Never \
-                        -- curl -s -o /dev/null -w "%{http_code}" http://quarkus-service/work 2>/dev/null || true)
+                   kubectl run curl-check-$i --image=curlimages/curl --restart=Never \
+                --overrides='{"spec": {"activeDeadlineSeconds": 30}}' \
+                -- curl -s -o /dev/null -w "%{http_code}" http://quarkus-service/work
+
+
+        kubectl wait --for=condition=Ready pod/curl-check-$i --timeout=20s >/dev/null 2>&1 || true
+
+                    STATUS=$(kubectl logs curl-check-$i 2>/dev/null)
                     if echo "\$STATUS" | grep -q "200"; then
                         echo "Service OK after rollback"
                     else
