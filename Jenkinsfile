@@ -63,7 +63,7 @@ pipeline {
                 sh '''
                     echo "Checking service via cluster..."
                     for i in $(seq 1 10); do
-                        STATUS=$(kubectl run curl-check-$i --image=curlimages/curl --rm  --restart=Never \
+                        STATUS=$(kubectl run curl-check-$i --image=curlimages/curl --rm -i --restart=Never \
                             -- curl -s -o /dev/null -w "%{http_code}" http://quarkus-service/work 2>/dev/null || true)
                         if echo "$STATUS" | grep -q "200"; then
                             echo "Service is UP (HTTP 200)"
