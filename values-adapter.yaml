@@ -1,0 +1,16 @@
+prometheus:
+  url: http://kube-stack-prometheus-kube-prometheus.monitoring.svc.cluster.local
+  port: 9090
+
+rules:
+  default: false
+  custom:
+    - seriesQuery: 'work_active_requests{namespace!="",pod!=""}'
+      resources:
+        overrides:
+          namespace: {resource: "namespace"}
+          pod: {resource: "pod"}
+      name:
+        matches: "work_active_requests"
+        as: "work_active_requests_custom"
+      metricsQuery: 'sum(<<.Series>>) by (<<.GroupBy>>)'

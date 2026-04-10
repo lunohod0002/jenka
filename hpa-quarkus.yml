@@ -1,0 +1,37 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: quarkus-hpa
+  namespace: default
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: quarkus-app
+  minReplicas: 1
+  maxReplicas: 10
+  metrics:
+    - type: Pods
+      pods:
+        metric:
+          name: work_active_requests_custom
+        target:
+          type: AverageValue
+          averageValue: "55" # Целевое значение
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0 # Убираем задержку перед увеличением
+      policies:
+        - type: Pods
+          value: 4          # Разрешаем добавлять по 4 пода сразу
+          periodSeconds: 10 # Каждые 15 секунд
+        - type: Percent
+          value: 100        # Или удваивать текущее кол-во (выберет максимум)
+          periodSeconds: 10 
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 100 # Плавное снижение (защита от скачков)
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15

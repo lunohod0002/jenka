@@ -10,6 +10,7 @@ pipeline {
         IMAGE_NAME    = 'georgezhironkin/quarkus-native'
         DEPLOYMENT    = 'quarkus-app'
         CONTAINER     = 'quarkus-container'
+        SERVICE_URL   = 'http://work.local/work'
         LOADTESTER_IMAGE = 'loadtester'
         SERVICE_URL      = 'http://quarkus-service/work'
 
@@ -45,12 +46,10 @@ pipeline {
                         ${CONTAINER}=${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
 
                     echo "Waiting for rollout..."
-
-                    kubectl wait pod \
-                        --for=condition=Ready \
-                        -l app=${DEPLOYMENT} \
-                        --timeout=120s
-
+ 		   if ! kubectl rollout status deployment/${DEPLOYMENT} --timeout=300s; then
+                	echo "ERROR: Rollout failed to complete!"
+                	exit 1
+            	    fi
                     echo "Current pods:"
                     kubectl get pods -l app=${DEPLOYMENT}
                 """
@@ -79,17 +78,16 @@ pipeline {
             }
         }
 
-        // ========== 5. Нагрузочный тест №1 — прогрев HPA ==========
         stage('Load Test 1 (Warmup)') {
-            steps {
-                sh '''
-                    set -e
+    steps {
+        sh '''
+            set -e
 
-                    JOB_NAME="loadtest-warmup-job"
+            JOB_NAME="loadtest-warmup-${BUILD_NUMBER}"
 
-                    kubectl delete job ${JOB_NAME} --ignore-not-found=true
+            kubectl delete job ${JOB_NAME} --ignore-not-found=true
 
-                    kubectl apply -f - <<EOF
+            kubectl apply -f - <<EOF
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -112,75 +110,42 @@ spec:
             - "${TEST_DURATION}"
 EOF
 
+            if ! kubectl wait --for=condition=Complete --timeout=5m job/${JOB_NAME}; then
+                echo "Warmup job failed or timed out"
+                kubectl describe job ${JOB_NAME} || true
+                kubectl logs job/${JOB_NAME} || true
+                exit 1
+            fi
 
-                    if ! kubectl wait --for=condition=Complete --timeout=5m job/${JOB_NAME}; then
-                        echo "Warmup job failed or timed out"
-                        kubectl describe job ${JOB_NAME} || true
-                        kubectl logs job/${JOB_NAME} || true
-                        exit 1
-                    fi
+            kubectl logs job/${JOB_NAME} | tee loadtest1.txt
 
-                    kubectl logs job/${JOB_NAME} | tee loadtest1.txt
+            echo '--- HPA status after warmup ---'
+            kubectl get hpa quarkus-hpa
+            kubectl get pods -l app=quarkus-app
 
-                    echo '--- HPA status after warmup ---'
-                    kubectl get hpa quarkus-hpa
-                    kubectl get pods -l app=quarkus-app
+            echo 'Waiting 30s for HPA scale-up...'
+            sleep 30
 
-                    echo 'Waiting 30s for HPA scale-up...'
-                    sleep 30
-
-                    kubectl get hpa quarkus-hpa
-                    kubectl get pods -l app=quarkus-app
-                '''
-            }
-        }
+            kubectl get hpa quarkus-hpa
+            kubectl get pods -l app=quarkus-app
+        '''
+    }
+}
 
         // ========== 6. Нагрузочный тест №2 — решающий ==========
         stage('Load Test 2 (Deciding)') {
             steps {
-            sh '''
-                set -e
+                sh """
+                    echo '=== Load Test 2: Deciding run ==='
 
-                JOB_NAME="loadtest-deciding-${BUILD_NUMBER}"
-
-                kubectl delete job ${JOB_NAME} --ignore-not-found=true
-
-                kubectl apply -f - <<EOF
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: ${JOB_NAME}
-spec:
-  backoffLimit: 0
-  ttlSecondsAfterFinished: 300
-  template:
-    spec:
-      restartPolicy: Never
-      containers:
-        - name: loadtester
-          image: ${LOADTESTER_IMAGE}
-          args:
-            - "-url"
-            - "${SERVICE_URL}"
-            - "-rps"
-            - "${TARGET_RPS}"
-            - "-duration"
-            - "${TEST_DURATION}"
-EOF
-
-
-                if ! kubectl wait --for=condition=Complete --timeout=5m job/${JOB_NAME}; then
-                    echo "Deciding job failed or timed out"
-                    kubectl describe job ${JOB_NAME} || true
-                    kubectl logs job/${JOB_NAME} || true
-                    exit 1
-                fi
-
-                kubectl logs job/${JOB_NAME} | tee loadtest2.txt
-            '''
+                    docker run --rm --network host loadtester \
+                        -url ${SERVICE_URL} \
+                        -rps ${TARGET_RPS} \
+                        -duration ${TEST_DURATION} \
+                        | tee loadtest2.txt
+                """
+            }
         }
-        }
-    
 
         // ========== 7. Анализ результатов ==========
         stage('Analyze Results') {
@@ -232,12 +197,10 @@ EOF
                     kubectl set image deployment/${DEPLOYMENT} \
                         ${CONTAINER}=${PREVIOUS_IMAGE}
 
-                    kubectl rollout status deployment/${DEPLOYMENT} --timeout=300s
-
-                    kubectl wait pod \
-                        --for=condition=Ready \
-                        -l app=${DEPLOYMENT} \
-                        --timeout=120s
+                    if ! kubectl rollout status deployment/${DEPLOYMENT} --timeout=300s; then
+                	echo "ERROR: Rollout failed to complete!"
+                	exit 1
+            	    fi
 
                     # Проверка: image откатился
                     CURRENT=\$(kubectl get deployment ${DEPLOYMENT} \
